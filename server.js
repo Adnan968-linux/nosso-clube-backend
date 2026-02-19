@@ -1,4 +1,3 @@
-
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
@@ -10,7 +9,7 @@ const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3005;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
@@ -18,15 +17,27 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static('uploads'));
 
-// Configuração do MySQL - ALTERE A SENHA AQUI!
+// LOG DAS VARIÁVEIS DE AMBIENTE (sem mostrar a senha)
+console.log('\n🔍 VERIFICANDO CONFIGURAÇÃO:');
+console.log('DB_HOST:', process.env.DB_HOST || '❌ NÃO DEFINIDO');
+console.log('DB_USER:', process.env.DB_USER || '❌ NÃO DEFINIDO');
+console.log('DB_NAME:', process.env.DB_NAME || '❌ NÃO DEFINIDO');
+console.log('DB_PORT:', process.env.DB_PORT || '❌ NÃO DEFINIDO');
+console.log('JWT_SECRET:', process.env.JWT_SECRET ? '✅ DEFINIDO' : '❌ NÃO DEFINIDO');
+
+// Configuração do MySQL
 const pool = mysql.createPool({
-    host: 'localhost',
-    user: 'root',
-    password: 'root', // COLOQUE SUA SENHA DO MYSQL AQUI
-    database: 'nosso_clube_db',
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'nosso_clube_db',
+    port: process.env.DB_PORT || 3306,
     waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
+    connectionLimit: 5,
+    queueLimit: 0,
+    ssl: {
+        rejectUnauthorized: false // Importante para TiDB Cloud
+    }
 });
 
 const promisePool = pool.promise();
@@ -48,9 +59,9 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 50 * 1024 * 1024 }, // AUMENTADO para 50MB
+    limits: { fileSize: 50 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|gif|webp/; // Adicionei webp
+        const allowedTypes = /jpeg|jpg|png|gif|webp/;
         const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
         const mimetype = allowedTypes.test(file.mimetype);
         
@@ -79,6 +90,31 @@ const authenticateToken = (req, res, next) => {
         next();
     });
 };
+// Rota raiz para teste
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'API do Nosso Clube está funcionando!',
+        endpoints: {
+            test: '/api/test',
+            categorias: '/api/categorias',
+            itens: '/api/itens',
+            login: '/api/login',
+            pedidos: '/api/pedidos'
+        }
+    });
+});
+
+// Rota de teste simples (já deve existir)
+app.get('/api/test', (req, res) => {
+    res.json({ message: 'Servidor está funcionando!' });
+});
+
+
+
+// Rota de teste simples (para verificar se o servidor está respondendo)
+app.get('/api/test', (req, res) => {
+    res.json({ message: 'Servidor está funcionando!' });
+});
 
 // Rota de login
 app.post('/api/login', async (req, res) => {
@@ -151,11 +187,11 @@ app.get('/api/itens', async (req, res) => {
             id: item.id,
             name: item.nome,
             category: item.categoria_nome,
-            price: item.preco,
+            price: parseFloat(item.preco),
             description: item.descricao,
-            image: item.imagem_path ? `http://localhost:${PORT}${item.imagem_path}` : null,
+            image: item.imagem_path ? `https://nosso-clube-api.onrender.com${item.imagem_path}` : null,
             isSpecial: item.is_special === 1,
-            specialPrice: item.preco_promocional
+            specialPrice: item.preco_promocional ? parseFloat(item.preco_promocional) : null
         }));
         
         res.json(itens);
@@ -165,46 +201,18 @@ app.get('/api/itens', async (req, res) => {
     }
 });
 
+// Rota POST para itens (com upload)
 app.post('/api/itens', authenticateToken, upload.single('imagem'), async (req, res) => {
     try {
-        console.log('\n=== NOVO ITEM RECEBIDO ===');
-        console.log('1️⃣ Corpo da requisição (req.body):', req.body);
-        console.log('2️⃣ Arquivo (req.file):', req.file);
-        console.log('3️⃣ Headers:', req.headers);
+        console.log('📦 Dados recebidos:', req.body);
         
         const { nome, categoria_id, preco, descricao, is_special, preco_promocional } = req.body;
         
-        // VALIDAÇÕES DETALHADAS
-        if (!nome) throw new Error('❌ Campo "nome" é obrigatório');
-        if (!categoria_id) throw new Error('❌ Campo "categoria_id" é obrigatório');
-        if (!preco) throw new Error('❌ Campo "preco" é obrigatório');
-        
-        // Converter preço (trocando vírgula por ponto se necessário)
-        let precoNumerico = preco.toString().replace(',', '.');
-        precoNumerico = parseFloat(precoNumerico);
-        
-        if (isNaN(precoNumerico) || precoNumerico <= 0) {
-            throw new Error(`❌ Preço inválido: ${preco} (convertido para ${precoNumerico})`);
+        if (!nome || !categoria_id || !preco) {
+            return res.status(400).json({ error: 'Campos obrigatórios faltando' });
         }
-        
-        // Converter categoria_id para número
-        const categoriaIdNumerico = parseInt(categoria_id);
-        if (isNaN(categoriaIdNumerico)) {
-            throw new Error(`❌ categoria_id inválido: ${categoria_id}`);
-        }
-        
-        console.log('4️⃣ Dados processados:', {
-            nome,
-            categoria_id: categoriaIdNumerico,
-            preco: precoNumerico,
-            descricao: descricao || '',
-            is_special: is_special === 'true' || is_special === true,
-            preco_promocional: preco_promocional
-        });
         
         const imagem_path = req.file ? `/uploads/${req.file.filename}` : null;
-        
-        console.log('5️⃣ Tentando inserir no banco...');
         
         const [result] = await promisePool.query(
             `INSERT INTO itens_cardapio 
@@ -212,16 +220,14 @@ app.post('/api/itens', authenticateToken, upload.single('imagem'), async (req, r
             VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
                 nome, 
-                categoriaIdNumerico, 
-                precoNumerico, 
+                parseInt(categoria_id), 
+                parseFloat(preco), 
                 descricao || '', 
                 imagem_path, 
                 is_special === 'true' || is_special === true, 
-                preco_promocional ? parseFloat(preco_promocional.toString().replace(',', '.')) : null
+                preco_promocional ? parseFloat(preco_promocional) : null
             ]
         );
-        
-        console.log('6️⃣ ✅ SUCESSO! ID inserido:', result.insertId);
         
         res.status(201).json({ 
             id: result.insertId, 
@@ -229,90 +235,8 @@ app.post('/api/itens', authenticateToken, upload.single('imagem'), async (req, r
         });
         
     } catch (error) {
-        console.error('\n❌❌❌ ERRO DETALHADO ❌❌❌');
-        console.error('Mensagem:', error.message);
-        console.error('Stack completo:', error.stack);
-        console.error('❌❌❌ FIM DO ERRO ❌❌❌\n');
-        
-        res.status(500).json({ 
-            error: error.message,
-            details: error.toString()
-        });
-    }
-});
-
-app.post('/api/itens', authenticateToken, upload.single('imagem'), async (req, res) => {
-    try {
-        const { nome, categoria_id, preco, descricao, is_special, preco_promocional } = req.body;
-        const imagem_path = req.file ? `/uploads/${req.file.filename}` : null;
-        
-        const [result] = await promisePool.query(
-            `INSERT INTO itens_cardapio 
-            (nome, categoria_id, preco, descricao, imagem_path, is_special, preco_promocional) 
-            VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [nome, categoria_id, preco, descricao, imagem_path, is_special || false, preco_promocional || null]
-        );
-        
-        res.status(201).json({ 
-            id: result.insertId, 
-            message: 'Item criado com sucesso',
-            imagem_path: imagem_path ? `http://localhost:${PORT}${imagem_path}` : null
-        });
-    } catch (error) {
-        console.error('Erro ao criar item:', error);
-        res.status(500).json({ error: 'Erro ao criar item' });
-    }
-});
-
-app.put('/api/itens/:id', authenticateToken, upload.single('imagem'), async (req, res) => {
-    try {
-        const { nome, categoria_id, preco, descricao, is_special, preco_promocional } = req.body;
-        
-        let query = 'UPDATE itens_cardapio SET nome = ?, categoria_id = ?, preco = ?, descricao = ?, is_special = ?, preco_promocional = ?';
-        const params = [nome, categoria_id, preco, descricao, is_special || false, preco_promocional || null];
-        
-        if (req.file) {
-            const [oldItem] = await promisePool.query('SELECT imagem_path FROM itens_cardapio WHERE id = ?', [req.params.id]);
-            if (oldItem[0]?.imagem_path) {
-                const oldPath = path.join(__dirname, oldItem[0].imagem_path);
-                if (fs.existsSync(oldPath)) {
-                    fs.unlinkSync(oldPath);
-                }
-            }
-            
-            query += ', imagem_path = ?';
-            params.push(`/uploads/${req.file.filename}`);
-        }
-        
-        query += ' WHERE id = ?';
-        params.push(req.params.id);
-        
-        await promisePool.query(query, params);
-        
-        res.json({ message: 'Item atualizado com sucesso' });
-    } catch (error) {
-        console.error('Erro ao atualizar item:', error);
-        res.status(500).json({ error: 'Erro ao atualizar item' });
-    }
-});
-
-app.delete('/api/itens/:id', authenticateToken, async (req, res) => {
-    try {
-        const [item] = await promisePool.query('SELECT imagem_path FROM itens_cardapio WHERE id = ?', [req.params.id]);
-        
-        if (item[0]?.imagem_path) {
-            const imagePath = path.join(__dirname, item[0].imagem_path);
-            if (fs.existsSync(imagePath)) {
-                fs.unlinkSync(imagePath);
-            }
-        }
-        
-        await promisePool.query('DELETE FROM itens_cardapio WHERE id = ?', [req.params.id]);
-        
-        res.json({ message: 'Item deletado com sucesso' });
-    } catch (error) {
-        console.error('Erro ao deletar item:', error);
-        res.status(500).json({ error: 'Erro ao deletar item' });
+        console.error('❌ Erro ao criar item:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
@@ -404,37 +328,12 @@ app.get('/api/pedidos', authenticateToken, async (req, res) => {
     }
 });
 
-// Inicializar banco de dados com usuário admin
-async function initDatabase() {
-    try {
-        const [rows] = await promisePool.query('SELECT * FROM usuarios WHERE username = "admin"');
-        
-        if (rows.length === 0) {
-            const hash = await bcrypt.hash('admin123', 10);
-            
-            await promisePool.query(
-                'INSERT INTO usuarios (username, password_hash) VALUES (?, ?)',
-                ['admin', hash]
-            );
-            
-            console.log('Usuário admin criado com senha: admin123');
-        }
-    } catch (error) {
-        console.error('Erro ao inicializar banco de dados:', error);
-    }
-}
-
-app.listen(PORT, async () => {
-    console.log(`🚀 Servidor do Nosso Clube rodando na porta ${PORT}`);
-    await initDatabase();
-});
 // Rota para atualizar status do pedido
 app.put('/api/pedidos/:id/status', authenticateToken, async (req, res) => {
     try {
         const { status } = req.body;
         const { id } = req.params;
         
-        // Validar status
         const statusValidos = ['pending', 'confirmed', 'preparing', 'delivered', 'cancelled'];
         if (!statusValidos.includes(status)) {
             return res.status(400).json({ error: 'Status inválido' });
@@ -456,46 +355,7 @@ app.put('/api/pedidos/:id/status', authenticateToken, async (req, res) => {
     }
 });
 
-// Rota para buscar pedido por número
-app.get('/api/pedidos', authenticateToken, async (req, res) => {
-    try {
-        const { numero } = req.query;
-        let query = `
-            SELECT p.*, 
-                   GROUP_CONCAT(
-                       JSON_OBJECT(
-                           'item_id', pi.item_id,
-                           'quantidade', pi.quantidade,
-                           'preco', pi.preco_unitario,
-                           'promocional', pi.preco_promocional,
-                           'subtotal', pi.subtotal
-                       )
-                   ) as itens_json
-            FROM pedidos p
-            LEFT JOIN pedido_itens pi ON p.id = pi.pedido_id
-        `;
-        
-        if (numero) {
-            query += ' WHERE p.numero_pedido = ?';
-        }
-        
-        query += ' GROUP BY p.id ORDER BY p.created_at DESC';
-        
-        const [pedidos] = await promisePool.query(query, numero ? [numero] : []);
-        
-        const pedidosFormatados = pedidos.map(pedido => ({
-            ...pedido,
-            itens: pedido.itens_json ? JSON.parse('[' + pedido.itens_json + ']') : []
-        }));
-        
-        res.json(pedidosFormatados);
-    } catch (error) {
-        console.error('Erro ao buscar pedidos:', error);
-        res.status(500).json({ error: 'Erro ao buscar pedidos' });
-    }
-});
-
-// Rota para deletar um pedido específico
+// Rota para deletar um pedido
 app.delete('/api/pedidos/:id', authenticateToken, async (req, res) => {
     try {
         const [result] = await promisePool.query(
@@ -512,4 +372,114 @@ app.delete('/api/pedidos/:id', authenticateToken, async (req, res) => {
         console.error('Erro ao deletar pedido:', error);
         res.status(500).json({ error: 'Erro ao deletar pedido' });
     }
+});
+
+// Inicializar banco de dados com usuário admin
+async function initDatabase() {
+    try {
+        console.log('\n📡 TESTANDO CONEXÃO COM O BANCO...');
+        
+        // Teste simples de conexão
+        const [testResult] = await promisePool.query('SELECT 1+1 as resultado');
+        console.log('✅ Conexão básica OK! Resultado:', testResult[0].resultado);
+        
+        // Verificar se o banco de dados existe
+        const [dbCheck] = await promisePool.query('SELECT DATABASE() as db');
+        console.log('📊 Banco atual:', dbCheck[0].db);
+        
+        // Verificar tabelas existentes
+        const [tables] = await promisePool.query('SHOW TABLES');
+        console.log('📋 Tabelas encontradas:', tables.map(t => Object.values(t)[0]).join(', ') || 'Nenhuma');
+        
+        // Verificar se a tabela usuarios existe
+        const [userTableCheck] = await promisePool.query("SHOW TABLES LIKE 'usuarios'");
+        
+        if (userTableCheck.length === 0) {
+            console.log('⚠️ Tabela usuarios não encontrada. Criando...');
+            
+            // Criar tabela de usuários
+            await promisePool.query(`
+                CREATE TABLE IF NOT EXISTS usuarios (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    username VARCHAR(50) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            
+            // Criar hash para admin123
+            const hash = await bcrypt.hash('admin123', 10);
+            
+            await promisePool.query(
+                'INSERT INTO usuarios (username, password_hash) VALUES (?, ?)',
+                ['admin', hash]
+            );
+            
+            console.log('✅ Usuário admin criado com sucesso!');
+        } else {
+            console.log('✅ Tabela usuarios encontrada');
+            
+            // Verificar se já existe usuário admin
+            const [adminCheck] = await promisePool.query('SELECT * FROM usuarios WHERE username = "admin"');
+            
+            if (adminCheck.length === 0) {
+                console.log('⚠️ Usuário admin não encontrado. Criando...');
+                const hash = await bcrypt.hash('admin123', 10);
+                await promisePool.query(
+                    'INSERT INTO usuarios (username, password_hash) VALUES (?, ?)',
+                    ['admin', hash]
+                );
+                console.log('✅ Usuário admin criado');
+            }
+        }
+        
+        // Verificar categorias
+        const [catCheck] = await promisePool.query("SHOW TABLES LIKE 'categorias'");
+        
+        if (catCheck.length === 0) {
+            console.log('⚠️ Tabela categorias não encontrada. Criando...');
+            
+            await promisePool.query(`
+                CREATE TABLE IF NOT EXISTS categorias (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    nome VARCHAR(50) UNIQUE NOT NULL,
+                    descricao TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            
+            await promisePool.query(`
+                INSERT INTO categorias (nome, descricao) VALUES
+                ('comidas', 'Pratos principais e refeições'),
+                ('bebidas', 'Bebidas em geral'),
+                ('sobremesas', 'Doces e sobremesas')
+            `);
+            
+            console.log('✅ Categorias criadas');
+        }
+        
+        console.log('🎉 BANCO DE DADOS INICIALIZADO COM SUCESSO!\n');
+        
+    } catch (error) {
+        console.error('\n❌❌❌ ERRO NA INICIALIZAÇÃO DO BANCO:');
+        console.error('Mensagem:', error.message);
+        console.error('Código:', error.code);
+        console.error('Errno:', error.errno);
+        console.error('SQL State:', error.sqlState);
+        console.error('SQL:', error.sql);
+        console.error('Stack:', error.stack);
+        console.error('❌❌❌ FIM DO ERRO\n');
+        
+        // Não encerra o processo, apenas loga o erro
+        console.log('⚠️ O servidor continuará rodando, mas o banco pode não estar acessível.');
+    }
+}
+
+// Iniciar servidor
+app.listen(PORT, '0.0.0.0', async () => {
+    console.log(`\n🚀 Servidor do Nosso Clube rodando na porta ${PORT}`);
+    console.log(`📱 Acesse: http://localhost:${PORT}`);
+    console.log(`🔍 Teste: http://localhost:${PORT}/api/test\n`);
+    
+    await initDatabase();
 });
