@@ -482,4 +482,16 @@ app.listen(PORT, '0.0.0.0', async () => {
     console.log(`🔍 Teste: http://localhost:${PORT}/api/test\n`);
     
     await initDatabase();
+});// Rota TEMPORÁRIA para gerar hash da senha (remova depois)
+app.get('/api/create-hash', async (req, res) => {
+    try {
+        const hash = await bcrypt.hash('admin123', 10);
+        res.json({ 
+            senha: 'admin123',
+            hash: hash,
+            comando_sql: `UPDATE usuarios SET password_hash = '${hash}' WHERE username = 'admin';`
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
