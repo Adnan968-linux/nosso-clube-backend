@@ -354,6 +354,79 @@ app.put('/api/pedidos/:id/status', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Erro ao atualizar status' });
     }
 });
+// ============================================
+// ROTA PARA ATUALIZAR ITEM (PUT)
+// ============================================
+app.put('/api/itens/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nome, categoria_id, preco, descricao, imagem, is_special, preco_promocional } = req.body;
+        
+        console.log('\n🔧 ATUALIZANDO ITEM ID:', id);
+        console.log('📦 Dados recebidos:', req.body);
+        
+        if (!nome || !categoria_id || !preco) {
+            return res.status(400).json({ error: 'Campos obrigatórios faltando' });
+        }
+        
+        // Construir query de atualização
+        let query = 'UPDATE itens_cardapio SET ';
+        const params = [];
+        const updates = [];
+        
+        updates.push('nome = ?');
+        params.push(nome);
+        
+        updates.push('categoria_id = ?');
+        params.push(parseInt(categoria_id));
+        
+        updates.push('preco = ?');
+        params.push(parseFloat(preco));
+        
+        updates.push('descricao = ?');
+        params.push(descricao || '');
+        
+        updates.push('is_special = ?');
+        params.push(is_special === 'true' || is_special === true);
+        
+        if (preco_promocional) {
+            updates.push('preco_promocional = ?');
+            params.push(parseFloat(preco_promocional));
+        } else {
+            updates.push('preco_promocional = NULL');
+        }
+        
+        // Se tiver imagem (URL), atualizar
+        if (imagem && imagem.trim() !== '') {
+            updates.push('imagem_path = ?');
+            params.push(imagem);
+        }
+        
+        query += updates.join(', ');
+        query += ' WHERE id = ?';
+        params.push(parseInt(id));
+        
+        console.log('📝 Query:', query);
+        console.log('🔢 Params:', params);
+        
+        const [result] = await promisePool.query(query, params);
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Item não encontrado' });
+        }
+        
+        console.log('✅ Item atualizado com sucesso! ID:', id);
+        
+        res.json({ 
+            message: 'Item atualizado com sucesso',
+            id: parseInt(id)
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro ao atualizar item:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Rota para deletar um pedido
 app.delete('/api/pedidos/:id', authenticateToken, async (req, res) => {
