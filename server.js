@@ -299,6 +299,52 @@ app.post('/api/pedidos', async (req, res) => {
 // ============================================
 // ROTA PARA ATUALIZAR ITEM (PUT)
 // ============================================
+
+    // ============================================
+// ROTA PARA LISTAR PEDIDOS (GET)
+// ============================================
+app.get('/api/pedidos', authenticateToken, async (req, res) => {
+    try {
+        console.log('📦 Buscando pedidos...');
+        
+        const [pedidos] = await promisePool.query(`
+            SELECT p.*, 
+                   GROUP_CONCAT(
+                       JSON_OBJECT(
+                           'item_id', pi.item_id,
+                           'quantidade', pi.quantidade,
+                           'preco', pi.preco_unitario,
+                           'promocional', pi.preco_promocional,
+                           'subtotal', pi.subtotal
+                       )
+                   ) as itens_json
+            FROM pedidos p
+            LEFT JOIN pedido_itens pi ON p.id = pi.pedido_id
+            GROUP BY p.id
+            ORDER BY p.created_at DESC
+        `);
+        
+        console.log(`📊 Encontrados ${pedidos.length} pedidos`);
+        
+        const pedidosFormatados = pedidos.map(pedido => ({
+            id: pedido.id,
+            numero_pedido: pedido.numero_pedido,
+            cliente_nome: pedido.cliente_nome,
+            cliente_telefone: pedido.cliente_telefone,
+            total: pedido.total,
+            status: pedido.status,
+            created_at: pedido.created_at,
+            itens: pedido.itens_json ? JSON.parse('[' + pedido.itens_json + ']') : []
+        }));
+        
+        res.json(pedidosFormatados);
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar pedidos:', error);
+        res.status(500).json({ error: 'Erro ao buscar pedidos' });
+    }
+});
+
   app.put('/api/itens/:id', authenticateToken, upload.single('imagem'), async (req, res) => {
     try {
         const { id } = req.params;
