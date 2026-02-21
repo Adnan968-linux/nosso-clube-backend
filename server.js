@@ -17,7 +17,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static('uploads'));
 
-// LOG DAS VARIÁVEIS DE AMBIENTE (sem mostrar a senha)
+// LOG DAS VARIÁVEIS DE AMBIENTE
 console.log('\n🔍 VERIFICANDO CONFIGURAÇÃO:');
 console.log('DB_HOST:', process.env.DB_HOST || '❌ NÃO DEFINIDO');
 console.log('DB_USER:', process.env.DB_USER || '❌ NÃO DEFINIDO');
@@ -90,6 +90,11 @@ const authenticateToken = (req, res, next) => {
         next();
     });
 };
+
+// ============================================
+// ROTAS PÚBLICAS
+// ============================================
+
 // Rota raiz para teste
 app.get('/', (req, res) => {
     res.json({ 
@@ -104,14 +109,7 @@ app.get('/', (req, res) => {
     });
 });
 
-// Rota de teste simples (já deve existir)
-app.get('/api/test', (req, res) => {
-    res.json({ message: 'Servidor está funcionando!' });
-});
-
-
-
-// Rota de teste simples (para verificar se o servidor está respondendo)
+// Rota de teste
 app.get('/api/test', (req, res) => {
     res.json({ message: 'Servidor está funcionando!' });
 });
@@ -161,7 +159,11 @@ app.get('/api/categorias', async (req, res) => {
     }
 });
 
-// Rotas para Itens do Cardápio
+// ============================================
+// ROTAS DE ITENS DO CARDÁPIO
+// ============================================
+
+// GET - Buscar itens
 app.get('/api/itens', async (req, res) => {
     try {
         const { categoria } = req.query;
@@ -183,16 +185,28 @@ app.get('/api/itens', async (req, res) => {
         
         const [rows] = await promisePool.query(query, params);
         
-        const itens = rows.map(item => ({
-            id: item.id,
-            name: item.nome,
-            category: item.categoria_nome,
-            price: parseFloat(item.preco),
-            description: item.descricao,
-            image: item.imagem_path ? `https://nosso-clube-api.onrender.com${item.imagem_path}` : null,
-            isSpecial: item.is_special === 1,
-            specialPrice: item.preco_promocional ? parseFloat(item.preco_promocional) : null
-        }));
+        const itens = rows.map(item => {
+            // CORREÇÃO: Não prefixar URLs que já são completas
+            let imageUrl = null;
+            if (item.imagem_path) {
+                if (item.imagem_path.startsWith('http')) {
+                    imageUrl = item.imagem_path; // URL externa (Pexels, Unsplash)
+                } else {
+                    imageUrl = `https://nosso-clube-api.onrender.com${item.imagem_path}`; // Upload local
+                }
+            }
+            
+            return {
+                id: item.id,
+                name: item.nome,
+                category: item.categoria_nome,
+                price: parseFloat(item.preco),
+                description: item.descricao,
+                image: imageUrl,
+                isSpecial: item.is_special === 1,
+                specialPrice: item.preco_promocional ? parseFloat(item.preco_promocional) : null
+            };
+        });
         
         res.json(itens);
     } catch (error) {
@@ -201,7 +215,7 @@ app.get('/api/itens', async (req, res) => {
     }
 });
 
-// Rota POST para itens (com upload)
+// POST - Criar item (com upload)
 app.post('/api/itens', authenticateToken, upload.single('imagem'), async (req, res) => {
     try {
         console.log('📦 Dados recebidos:', req.body);
@@ -240,114 +254,7 @@ app.post('/api/itens', authenticateToken, upload.single('imagem'), async (req, r
     }
 });
 
-// Rotas para Pedidos
-app.post('/api/pedidos', async (req, res) => {
-    try {
-        const { cliente_nome, cliente_telefone, items } = req.body;
-        
-        const numero_pedido = 'NC' + Date.now().toString().slice(-8) + Math.floor(Math.random() * 1000);
-        
-        const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        
-        const connection = await promisePool.getConnection();
-        await connection.beginTransaction();
-        
-        try {
-            const [pedidoResult] = await connection.query(
-                'INSERT INTO pedidos (numero_pedido, cliente_nome, cliente_telefone, total) VALUES (?, ?, ?, ?)',
-                [numero_pedido, cliente_nome, cliente_telefone, total]
-            );
-            
-            const pedido_id = pedidoResult.insertId;
-            
-            for (const item of items) {
-                await connection.query(
-                    `INSERT INTO pedido_itens 
-                    (pedido_id, item_id, quantidade, preco_unitario, preco_promocional, subtotal) 
-                    VALUES (?, ?, ?, ?, ?, ?)`,
-                    [
-                        pedido_id, 
-                        item.id, 
-                        item.quantity, 
-                        item.price,
-                        item.originalPrice ? true : false,
-                        item.price * item.quantity
-                    ]
-                );
-            }
-            
-            await connection.commit();
-            
-            res.status(201).json({ 
-                message: 'Pedido criado com sucesso',
-                numero_pedido: numero_pedido,
-                total: total
-            });
-            
-        } catch (error) {
-            await connection.rollback();
-            throw error;
-        } finally {
-            connection.release();
-        }
-        
-    } catch (error) {
-        console.error('Erro ao criar pedido:', error);
-        res.status(500).json({ error: 'Erro ao criar pedido' });
-    }
-});
-// ============================================
-// ROTA PARA ATUALIZAR ITEM (PUT)
-// ============================================
-
-    // ============================================
-// ROTA PARA LISTAR PEDIDOS (GET)
-// ============================================
-app.get('/api/pedidos', authenticateToken, async (req, res) => {
-    try {
-        console.log('📦 Buscando pedidos...');
-        
-        const [pedidos] = await promisePool.query(`
-            SELECT p.*, 
-                   GROUP_CONCAT(
-                       JSON_OBJECT(
-                           'item_id', pi.item_id,
-                           'quantidade', pi.quantidade,
-                           'preco', pi.preco_unitario,
-                           'promocional', pi.preco_promocional,
-                           'subtotal', pi.subtotal
-                       )
-                   ) as itens_json
-            FROM pedidos p
-            LEFT JOIN pedido_itens pi ON p.id = pi.pedido_id
-            GROUP BY p.id
-            ORDER BY p.created_at DESC
-        `);
-        
-        console.log(`📊 Encontrados ${pedidos.length} pedidos`);
-        
-        const pedidosFormatados = pedidos.map(pedido => ({
-            id: pedido.id,
-            numero_pedido: pedido.numero_pedido,
-            cliente_nome: pedido.cliente_nome,
-            cliente_telefone: pedido.cliente_telefone,
-            total: pedido.total,
-            status: pedido.status,
-            created_at: pedido.created_at,
-            itens: pedido.itens_json ? JSON.parse('[' + pedido.itens_json + ']') : []
-        }));
-        
-        res.json(pedidosFormatados);
-        
-    } catch (error) {
-        console.error('❌ Erro ao buscar pedidos:', error);
-        res.status(500).json({ error: 'Erro ao buscar pedidos' });
-    }
-});
-
-  // ============================================
-// ROTA PARA ATUALIZAR ITEM (PUT) - ACEITA ARQUIVO OU URL
-// ============================================
+// PUT - Atualizar item (ACEITA ARQUIVO OU URL) - ÚNICA ROTA PUT
 app.put('/api/itens/:id', authenticateToken, upload.single('imagem'), async (req, res) => {
     try {
         const { id } = req.params;
@@ -420,7 +327,152 @@ app.put('/api/itens/:id', authenticateToken, upload.single('imagem'), async (req
     }
 });
 
-// Rota para atualizar status do pedido
+// DELETE - Deletar item
+app.delete('/api/itens/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        console.log(`\n🗑️ DELETANDO ITEM ID: ${id}`);
+        
+        // Buscar a imagem para deletar do servidor (se for upload)
+        const [item] = await promisePool.query(
+            'SELECT imagem_path FROM itens_cardapio WHERE id = ?',
+            [id]
+        );
+        
+        // Deletar o item do banco
+        const [result] = await promisePool.query(
+            'DELETE FROM itens_cardapio WHERE id = ?',
+            [id]
+        );
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Item não encontrado' });
+        }
+        
+        // Se tiver imagem no servidor (upload), deletar o arquivo
+        if (item[0]?.imagem_path && item[0].imagem_path.startsWith('/uploads')) {
+            const filePath = path.join(__dirname, item[0].imagem_path);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+                console.log('📸 Imagem deletada do servidor');
+            }
+        }
+        
+        console.log('✅ Item deletado com sucesso!');
+        res.json({ message: 'Item deletado com sucesso' });
+        
+    } catch (error) {
+        console.error('❌ Erro ao deletar item:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// ROTAS DE PEDIDOS
+// ============================================
+
+// POST - Criar pedido
+app.post('/api/pedidos', async (req, res) => {
+    try {
+        const { cliente_nome, cliente_telefone, items } = req.body;
+        
+        const numero_pedido = 'NC' + Date.now().toString().slice(-8) + Math.floor(Math.random() * 1000);
+        
+        const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        
+        const connection = await promisePool.getConnection();
+        await connection.beginTransaction();
+        
+        try {
+            const [pedidoResult] = await connection.query(
+                'INSERT INTO pedidos (numero_pedido, cliente_nome, cliente_telefone, total) VALUES (?, ?, ?, ?)',
+                [numero_pedido, cliente_nome, cliente_telefone, total]
+            );
+            
+            const pedido_id = pedidoResult.insertId;
+            
+            for (const item of items) {
+                await connection.query(
+                    `INSERT INTO pedido_itens 
+                    (pedido_id, item_id, quantidade, preco_unitario, preco_promocional, subtotal) 
+                    VALUES (?, ?, ?, ?, ?, ?)`,
+                    [
+                        pedido_id, 
+                        item.id, 
+                        item.quantity, 
+                        item.price,
+                        item.originalPrice ? true : false,
+                        item.price * item.quantity
+                    ]
+                );
+            }
+            
+            await connection.commit();
+            
+            res.status(201).json({ 
+                message: 'Pedido criado com sucesso',
+                numero_pedido: numero_pedido,
+                total: total
+            });
+            
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao criar pedido:', error);
+        res.status(500).json({ error: 'Erro ao criar pedido' });
+    }
+});
+
+// GET - Listar pedidos
+app.get('/api/pedidos', authenticateToken, async (req, res) => {
+    try {
+        console.log('📦 Buscando pedidos...');
+        
+        const [pedidos] = await promisePool.query(`
+            SELECT p.*, 
+                   GROUP_CONCAT(
+                       JSON_OBJECT(
+                           'item_id', pi.item_id,
+                           'quantidade', pi.quantidade,
+                           'preco', pi.preco_unitario,
+                           'promocional', pi.preco_promocional,
+                           'subtotal', pi.subtotal
+                       )
+                   ) as itens_json
+            FROM pedidos p
+            LEFT JOIN pedido_itens pi ON p.id = pi.pedido_id
+            GROUP BY p.id
+            ORDER BY p.created_at DESC
+        `);
+        
+        console.log(`📊 Encontrados ${pedidos.length} pedidos`);
+        
+        const pedidosFormatados = pedidos.map(pedido => ({
+            id: pedido.id,
+            numero_pedido: pedido.numero_pedido,
+            cliente_nome: pedido.cliente_nome,
+            cliente_telefone: pedido.cliente_telefone,
+            total: pedido.total,
+            status: pedido.status,
+            created_at: pedido.created_at,
+            itens: pedido.itens_json ? JSON.parse('[' + pedido.itens_json + ']') : []
+        }));
+        
+        res.json(pedidosFormatados);
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar pedidos:', error);
+        res.status(500).json({ error: 'Erro ao buscar pedidos' });
+    }
+});
+
+// PUT - Atualizar status do pedido
 app.put('/api/pedidos/:id/status', authenticateToken, async (req, res) => {
     try {
         const { status } = req.body;
@@ -446,123 +498,8 @@ app.put('/api/pedidos/:id/status', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Erro ao atualizar status' });
     }
 });
-// ============================================
-// ROTA PARA ATUALIZAR ITEM (PUT)
-// ============================================
-app.put('/api/itens/:id', authenticateToken, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { nome, categoria_id, preco, descricao, imagem, is_special, preco_promocional } = req.body;
-        
-        console.log('\n🔧 ATUALIZANDO ITEM ID:', id);
-        console.log('📦 Dados recebidos:', req.body);
-        
-        if (!nome || !categoria_id || !preco) {
-            return res.status(400).json({ error: 'Campos obrigatórios faltando' });
-        }
-        
-        // Construir query de atualização
-        let query = 'UPDATE itens_cardapio SET ';
-        const params = [];
-        const updates = [];
-        
-        updates.push('nome = ?');
-        params.push(nome);
-        
-        updates.push('categoria_id = ?');
-        params.push(parseInt(categoria_id));
-        
-        updates.push('preco = ?');
-        params.push(parseFloat(preco));
-        
-        updates.push('descricao = ?');
-        params.push(descricao || '');
-        
-        updates.push('is_special = ?');
-        params.push(is_special === 'true' || is_special === true);
-        
-        if (preco_promocional) {
-            updates.push('preco_promocional = ?');
-            params.push(parseFloat(preco_promocional));
-        } else {
-            updates.push('preco_promocional = NULL');
-        }
-        
-        // Se tiver imagem (URL), atualizar
-        if (imagem && imagem.trim() !== '') {
-            updates.push('imagem_path = ?');
-            params.push(imagem);
-        }
-        
-        query += updates.join(', ');
-        query += ' WHERE id = ?';
-        params.push(parseInt(id));
-        
-        console.log('📝 Query:', query);
-        console.log('🔢 Params:', params);
-        
-        const [result] = await promisePool.query(query, params);
-        
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'Item não encontrado' });
-        }
-        
-        console.log('✅ Item atualizado com sucesso! ID:', id);
-        
-        res.json({ 
-            message: 'Item atualizado com sucesso',
-            id: parseInt(id)
-        });
-        
-    } catch (error) {
-        console.error('❌ Erro ao atualizar item:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-  // ============================================
-// ROTA PARA DELETAR ITEM (DELETE)
-// ============================================
-app.delete('/api/itens/:id', authenticateToken, async (req, res) => {
-    try {
-        const { id } = req.params;
-        
-        console.log(`\n🗑️ DELETANDO ITEM ID: ${id}`);
-        
-        // Opcional: buscar a imagem para deletar do servidor
-        const [item] = await promisePool.query(
-            'SELECT imagem_path FROM itens_cardapio WHERE id = ?',
-            [id]
-        );
-        
-        // Deletar o item do banco
-        const [result] = await promisePool.query(
-            'DELETE FROM itens_cardapio WHERE id = ?',
-            [id]
-        );
-        
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'Item não encontrado' });
-        }
-        
-        // Se tiver imagem no servidor (upload), pode deletar o arquivo
-        if (item[0]?.imagem_path && item[0].imagem_path.startsWith('/uploads')) {
-            const filePath = path.join(__dirname, item[0].imagem_path);
-            if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-                console.log('📸 Imagem deletada do servidor');
-            }
-        }
-        
-        console.log('✅ Item deletado com sucesso!');
-        res.json({ message: 'Item deletado com sucesso' });
-        
-    } catch (error) {
-        console.error('❌ Erro ao deletar item:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
 
-// Rota para deletar um pedido
+// DELETE - Deletar pedido
 app.delete('/api/pedidos/:id', authenticateToken, async (req, res) => {
     try {
         const [result] = await promisePool.query(
@@ -581,20 +518,20 @@ app.delete('/api/pedidos/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// Inicializar banco de dados com usuário admin
+// ============================================
+// INICIALIZAÇÃO DO BANCO DE DADOS
+// ============================================
+
 async function initDatabase() {
     try {
         console.log('\n📡 TESTANDO CONEXÃO COM O BANCO...');
         
-        // Teste simples de conexão
         const [testResult] = await promisePool.query('SELECT 1+1 as resultado');
         console.log('✅ Conexão básica OK! Resultado:', testResult[0].resultado);
         
-        // Verificar se o banco de dados existe
         const [dbCheck] = await promisePool.query('SELECT DATABASE() as db');
         console.log('📊 Banco atual:', dbCheck[0].db);
         
-        // Verificar tabelas existentes
         const [tables] = await promisePool.query('SHOW TABLES');
         console.log('📋 Tabelas encontradas:', tables.map(t => Object.values(t)[0]).join(', ') || 'Nenhuma');
         
@@ -604,7 +541,6 @@ async function initDatabase() {
         if (userTableCheck.length === 0) {
             console.log('⚠️ Tabela usuarios não encontrada. Criando...');
             
-            // Criar tabela de usuários
             await promisePool.query(`
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -614,7 +550,6 @@ async function initDatabase() {
                 )
             `);
             
-            // Criar hash para admin123
             const hash = await bcrypt.hash('admin123', 10);
             
             await promisePool.query(
@@ -626,7 +561,6 @@ async function initDatabase() {
         } else {
             console.log('✅ Tabela usuarios encontrada');
             
-            // Verificar se já existe usuário admin
             const [adminCheck] = await promisePool.query('SELECT * FROM usuarios WHERE username = "admin"');
             
             if (adminCheck.length === 0) {
@@ -677,19 +611,13 @@ async function initDatabase() {
         console.error('Stack:', error.stack);
         console.error('❌❌❌ FIM DO ERRO\n');
         
-        // Não encerra o processo, apenas loga o erro
         console.log('⚠️ O servidor continuará rodando, mas o banco pode não estar acessível.');
     }
 }
 
-// Iniciar servidor
-app.listen(PORT, '0.0.0.0', async () => {
-    console.log(`\n🚀 Servidor do Nosso Clube rodando na porta ${PORT}`);
-    console.log(`📱 Acesse: http://localhost:${PORT}`);
-    console.log(`🔍 Teste: http://localhost:${PORT}/api/test\n`);
-    
-    await initDatabase();
-});// Rota TEMPORÁRIA para gerar hash da senha (remova depois)
+// ============================================
+// ROTA TEMPORÁRIA PARA GERAR HASH (remova depois)
+// ============================================
 app.get('/api/create-hash', async (req, res) => {
     try {
         const hash = await bcrypt.hash('admin123', 10);
@@ -701,4 +629,15 @@ app.get('/api/create-hash', async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
+});
+
+// ============================================
+// INICIAR SERVIDOR
+// ============================================
+app.listen(PORT, '0.0.0.0', async () => {
+    console.log(`\n🚀 Servidor do Nosso Clube rodando na porta ${PORT}`);
+    console.log(`📱 Acesse: http://localhost:${PORT}`);
+    console.log(`🔍 Teste: http://localhost:${PORT}/api/test\n`);
+    
+    await initDatabase();
 });
