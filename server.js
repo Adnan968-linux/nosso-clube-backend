@@ -299,20 +299,19 @@ app.post('/api/pedidos', async (req, res) => {
 // ============================================
 // ROTA PARA ATUALIZAR ITEM (PUT)
 // ============================================
-app.put('/api/itens/:id', authenticateToken, async (req, res) => {
+  app.put('/api/itens/:id', authenticateToken, upload.single('imagem'), async (req, res) => {
     try {
         const { id } = req.params;
-        const { nome, categoria_id, preco, descricao, imagem, is_special, preco_promocional } = req.body;
+        const { nome, categoria_id, preco, descricao, is_special, preco_promocional } = req.body;
         
         console.log('\n🔧 ATUALIZANDO ITEM ID:', id);
         console.log('📦 Dados recebidos:', req.body);
+        console.log('📸 Arquivo:', req.file);
         
-        // Validação de campos obrigatórios
         if (!nome || !categoria_id || !preco) {
             return res.status(400).json({ error: 'Campos obrigatórios faltando' });
         }
         
-        // Construir query de atualização
         let query = 'UPDATE itens_cardapio SET ';
         const params = [];
         const updates = [];
@@ -339,12 +338,8 @@ app.put('/api/itens/:id', authenticateToken, async (req, res) => {
             updates.push('preco_promocional = NULL');
         }
         
-        // Se tiver imagem (URL), atualizar
-        if (imagem && imagem.trim() !== '') {
-            updates.push('imagem_path = ?');
-            params.push(imagem);
-        } else if (req.file) {
-            // Se for upload de arquivo
+        // Se tiver upload de arquivo
+        if (req.file) {
             updates.push('imagem_path = ?');
             params.push(`/uploads/${req.file.filename}`);
         }
@@ -353,56 +348,17 @@ app.put('/api/itens/:id', authenticateToken, async (req, res) => {
         query += ' WHERE id = ?';
         params.push(parseInt(id));
         
-        console.log('📝 Query:', query);
-        console.log('🔢 Params:', params);
-        
         const [result] = await promisePool.query(query, params);
         
         if (result.affectedRows === 0) {
             return res.status(404).json({ error: 'Item não encontrado' });
         }
         
-        console.log('✅ Item atualizado com sucesso! ID:', id);
-        
-        res.json({ 
-            message: 'Item atualizado com sucesso',
-            id: parseInt(id)
-        });
+        res.json({ message: 'Item atualizado com sucesso', id: parseInt(id) });
         
     } catch (error) {
-        console.error('❌ Erro ao atualizar item:', error);
+        console.error('❌ Erro:', error);
         res.status(500).json({ error: error.message });
-    }
-});
-
-app.get('/api/pedidos', authenticateToken, async (req, res) => {
-    try {
-        const [pedidos] = await promisePool.query(`
-            SELECT p.*, 
-                   GROUP_CONCAT(
-                       JSON_OBJECT(
-                           'item_id', pi.item_id,
-                           'quantidade', pi.quantidade,
-                           'preco', pi.preco_unitario,
-                           'promocional', pi.preco_promocional,
-                           'subtotal', pi.subtotal
-                       )
-                   ) as itens_json
-            FROM pedidos p
-            LEFT JOIN pedido_itens pi ON p.id = pi.pedido_id
-            GROUP BY p.id
-            ORDER BY p.created_at DESC
-        `);
-        
-        const pedidosFormatados = pedidos.map(pedido => ({
-            ...pedido,
-            itens: pedido.itens_json ? JSON.parse('[' + pedido.itens_json + ']') : []
-        }));
-        
-        res.json(pedidosFormatados);
-    } catch (error) {
-        console.error('Erro ao buscar pedidos:', error);
-        res.status(500).json({ error: 'Erro ao buscar pedidos' });
     }
 });
 
