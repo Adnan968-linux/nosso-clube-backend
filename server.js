@@ -519,6 +519,48 @@ app.put('/api/itens/:id', authenticateToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+  // ============================================
+// ROTA PARA DELETAR ITEM (DELETE)
+// ============================================
+app.delete('/api/itens/:id', authenticateToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        console.log(`\n🗑️ DELETANDO ITEM ID: ${id}`);
+        
+        // Opcional: buscar a imagem para deletar do servidor
+        const [item] = await promisePool.query(
+            'SELECT imagem_path FROM itens_cardapio WHERE id = ?',
+            [id]
+        );
+        
+        // Deletar o item do banco
+        const [result] = await promisePool.query(
+            'DELETE FROM itens_cardapio WHERE id = ?',
+            [id]
+        );
+        
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'Item não encontrado' });
+        }
+        
+        // Se tiver imagem no servidor (upload), pode deletar o arquivo
+        if (item[0]?.imagem_path && item[0].imagem_path.startsWith('/uploads')) {
+            const filePath = path.join(__dirname, item[0].imagem_path);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+                console.log('📸 Imagem deletada do servidor');
+            }
+        }
+        
+        console.log('✅ Item deletado com sucesso!');
+        res.json({ message: 'Item deletado com sucesso' });
+        
+    } catch (error) {
+        console.error('❌ Erro ao deletar item:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Rota para deletar um pedido
 app.delete('/api/pedidos/:id', authenticateToken, async (req, res) => {
