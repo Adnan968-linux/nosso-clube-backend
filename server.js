@@ -345,10 +345,13 @@ app.get('/api/pedidos', authenticateToken, async (req, res) => {
     }
 });
 
-  app.put('/api/itens/:id', authenticateToken, upload.single('imagem'), async (req, res) => {
+  // ============================================
+// ROTA PARA ATUALIZAR ITEM (PUT) - ACEITA ARQUIVO OU URL
+// ============================================
+app.put('/api/itens/:id', authenticateToken, upload.single('imagem'), async (req, res) => {
     try {
         const { id } = req.params;
-        const { nome, categoria_id, preco, descricao, is_special, preco_promocional } = req.body;
+        const { nome, categoria_id, preco, descricao, is_special, preco_promocional, imagem } = req.body;
         
         console.log('\n🔧 ATUALIZANDO ITEM ID:', id);
         console.log('📦 Dados recebidos:', req.body);
@@ -384,15 +387,24 @@ app.get('/api/pedidos', authenticateToken, async (req, res) => {
             updates.push('preco_promocional = NULL');
         }
         
-        // Se tiver upload de arquivo
+        // PRIORIDADE 1: Se tiver upload de arquivo, usa ele
         if (req.file) {
             updates.push('imagem_path = ?');
             params.push(`/uploads/${req.file.filename}`);
+            console.log('📸 Usando arquivo enviado:', req.file.filename);
+        }
+        // PRIORIDADE 2: Se tiver URL no campo imagem, usa ela
+        else if (imagem && imagem.trim() !== '') {
+            updates.push('imagem_path = ?');
+            params.push(imagem);
+            console.log('🔗 Usando URL fornecida:', imagem);
         }
         
         query += updates.join(', ');
         query += ' WHERE id = ?';
         params.push(parseInt(id));
+        
+        console.log('📝 Query:', query);
         
         const [result] = await promisePool.query(query, params);
         
