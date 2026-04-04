@@ -375,7 +375,7 @@ app.delete('/api/itens/:id', authenticateToken, async (req, res) => {
 // POST - Criar pedido
 app.post('/api/pedidos', async (req, res) => {
     try {
-        const { cliente_nome, cliente_telefone, items } = req.body;
+        const { cliente_nome, cliente_telefone, items, forma_pagamento, observacao } = req.body;
         
         const numero_pedido = 'NC' + Date.now().toString().slice(-8) + Math.floor(Math.random() * 1000);
         
@@ -385,9 +385,10 @@ app.post('/api/pedidos', async (req, res) => {
         await connection.beginTransaction();
         
         try {
+            // Adicionar forma_pagamento e observacao na tabela pedidos
             const [pedidoResult] = await connection.query(
-                'INSERT INTO pedidos (numero_pedido, cliente_nome, cliente_telefone, total) VALUES (?, ?, ?, ?)',
-                [numero_pedido, cliente_nome, cliente_telefone, total]
+                'INSERT INTO pedidos (numero_pedido, cliente_nome, cliente_telefone, total, forma_pagamento, observacao) VALUES (?, ?, ?, ?, ?, ?)',
+                [numero_pedido, cliente_nome, cliente_telefone, total, forma_pagamento || null, observacao || null]
             );
             
             const pedido_id = pedidoResult.insertId;
