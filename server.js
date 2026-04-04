@@ -372,10 +372,17 @@ app.delete('/api/itens/:id', authenticateToken, async (req, res) => {
 // ROTAS DE PEDIDOS
 // ============================================
 
-// POST - Criar pedido
+// ============================================
+// ROTA PARA CRIAR PEDIDO (POST)
+// ============================================
 app.post('/api/pedidos', async (req, res) => {
     try {
+        console.log('📦 Dados COMPLETOS recebidos no pedido:', req.body);
+        
         const { cliente_nome, cliente_telefone, items, forma_pagamento, observacao } = req.body;
+        
+        console.log('💰 Forma de pagamento recebida:', forma_pagamento);
+        console.log('📝 Observação recebida:', observacao);
         
         const numero_pedido = 'NC' + Date.now().toString().slice(-8) + Math.floor(Math.random() * 1000);
         
@@ -385,7 +392,7 @@ app.post('/api/pedidos', async (req, res) => {
         await connection.beginTransaction();
         
         try {
-            // Adicionar forma_pagamento e observacao na tabela pedidos
+            // INSERT com forma_pagamento e observacao
             const [pedidoResult] = await connection.query(
                 'INSERT INTO pedidos (numero_pedido, cliente_nome, cliente_telefone, total, forma_pagamento, observacao) VALUES (?, ?, ?, ?, ?, ?)',
                 [numero_pedido, cliente_nome, cliente_telefone, total, forma_pagamento || null, observacao || null]
@@ -425,21 +432,8 @@ app.post('/api/pedidos', async (req, res) => {
         }
         
     } catch (error) {
-        console.error('Erro ao criar pedido:', error);
+        console.error('❌ Erro ao criar pedido:', error);
         res.status(500).json({ error: 'Erro ao criar pedido' });
-    }
-});
-app.post('/api/pedidos', async (req, res) => {
-    try {
-        // ADICIONE ESTES LOGS
-        console.log('📦 Dados COMPLETOS recebidos no pedido:', req.body);
-        
-        const { cliente_nome, cliente_telefone, items, forma_pagamento, observacao } = req.body;
-        
-        console.log('💰 Forma de pagamento recebida:', forma_pagamento);
-        console.log('📝 Observação recebida:', observacao);
-        
-        // ... resto do código existente
     }
 });
 
