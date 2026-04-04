@@ -429,6 +429,20 @@ app.post('/api/pedidos', async (req, res) => {
         res.status(500).json({ error: 'Erro ao criar pedido' });
     }
 });
+app.post('/api/pedidos', async (req, res) => {
+    try {
+        // ADICIONE ESTES LOGS
+        console.log('📦 Dados COMPLETOS recebidos no pedido:', req.body);
+        
+        const { cliente_nome, cliente_telefone, items, forma_pagamento, observacao } = req.body;
+        
+        console.log('💰 Forma de pagamento recebida:', forma_pagamento);
+        console.log('📝 Observação recebida:', observacao);
+        
+        // ... resto do código existente
+    }
+});
+
 
 // GET - Listar pedidos
 app.get('/api/pedidos', authenticateToken, async (req, res) => {
