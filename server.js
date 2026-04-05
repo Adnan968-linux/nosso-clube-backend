@@ -471,10 +471,12 @@ app.get('/api/pedidos', authenticateToken, async (req, res) => {
             total: pedido.total,
             status: pedido.status,
             created_at: pedido.created_at,
-            forma_pagamento: pedido.forma_pagamento,  // ← ADICIONADO
-            observacao: pedido.observacao,          // ← ADICIONADO
+            forma_pagamento: pedido.forma_pagamento,  // ← CAMPO ADICIONADO
+            observacao: pedido.observacao,          // ← CAMPO ADICIONADO
             itens: pedido.itens_json ? JSON.parse('[' + pedido.itens_json + ']') : []
         }));
+        
+        console.log('💰 Forma de pagamento do primeiro pedido:', pedidosFormatados[0]?.forma_pagamento);
         
         res.json(pedidosFormatados);
         
