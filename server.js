@@ -439,6 +439,7 @@ app.post('/api/pedidos', async (req, res) => {
 
 
 // GET - Listar pedidos
+// GET - Listar pedidos
 app.get('/api/pedidos', authenticateToken, async (req, res) => {
     try {
         console.log('📦 Buscando pedidos...');
@@ -470,6 +471,8 @@ app.get('/api/pedidos', authenticateToken, async (req, res) => {
             total: pedido.total,
             status: pedido.status,
             created_at: pedido.created_at,
+            forma_pagamento: pedido.forma_pagamento,  // ← ADICIONADO
+            observacao: pedido.observacao,          // ← ADICIONADO
             itens: pedido.itens_json ? JSON.parse('[' + pedido.itens_json + ']') : []
         }));
         
